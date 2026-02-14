@@ -30,7 +30,9 @@ def semantic_search(data):
 
     query = data.get("query", "")
     k = data.get("k", 10)
-    rerank_flag = data.get("rerank", True)
+   
+    rerank_flag = data.get("rerank", False)
+
     rerankK = data.get("rerankK", 6)
 
     if not query:
