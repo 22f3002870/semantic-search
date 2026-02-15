@@ -1,33 +1,25 @@
 import requests
 import json
+import re
 from config import AIPIPE_BASE_URL, RERANK_MODEL, HEADERS
 
-
 def rerank(query, candidates):
-    """
-    Re-rank candidate documents using LLM relevance scoring.
-    Returns candidates sorted by normalized score (0–1).
-    Never crashes.
-    """
-
     if not candidates:
         return []
 
-    # Build numbered document list
+    # Build prompt
     numbered_docs = ""
     for i, candidate in enumerate(candidates):
-        content = candidate.get("content", "")
-        numbered_docs += f"\nDocument {i}:\n{content}\n"
+        numbered_docs += f"\nDocument {i}:\n{candidate['content']}\n"
 
     prompt = f"""
-You are a relevance scoring assistant.
+You are a strict relevance scoring assistant.
 
 Query: "{query}"
 
-Below are documents numbered 0 to {len(candidates)-1}.
-Rate each document from 0 to 10 based on relevance to the query.
+Rate each document from 0 to 10.
 
-Return results ONLY in this exact JSON format:
+Return ONLY valid JSON:
 {{"scores": [score0, score1, score2, ...]}}
 
 Documents:
@@ -43,36 +35,32 @@ Documents:
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0
             },
-            timeout=20
+            timeout=30
         )
 
-        response.raise_for_status()
+        content = response.json()["choices"][0]["message"]["content"]
 
-        result_text = response.json()["choices"][0]["message"]["content"]
+        # Extract JSON safely using regex
+        match = re.search(r'\{.*\}', content, re.DOTALL)
+        if match:
+            scores_json = json.loads(match.group())
+            scores = scores_json.get("scores", [])
+        else:
+            scores = []
 
-    except Exception:
-        # If API fails, fallback to original ranking
-        for candidate in candidates:
-            candidate["score"] = candidate.get("score", 0.0)
-        return sorted(candidates, key=lambda x: x["score"], reverse=True)
-
-    # Try parsing JSON safely
-    try:
-        scores_json = json.loads(result_text)
-        scores = scores_json.get("scores", [])
-    except Exception:
+    except Exception as e:
+        print("Rerank error:", e)
         scores = []
 
     # Assign scores safely
     for i, candidate in enumerate(candidates):
-        if i < len(scores):
-            try:
+        try:
+            if i < len(scores):
                 normalized = float(scores[i]) / 10.0
-                # Clamp between 0 and 1
                 candidate["score"] = max(0.0, min(1.0, normalized))
-            except Exception:
+            else:
                 candidate["score"] = 0.0
-        else:
+        except:
             candidate["score"] = 0.0
 
     return sorted(candidates, key=lambda x: x["score"], reverse=True)
