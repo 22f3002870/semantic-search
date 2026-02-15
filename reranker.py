@@ -1,25 +1,24 @@
 import requests
 import json
-import re
 from config import AIPIPE_BASE_URL, RERANK_MODEL, HEADERS
 
 def rerank(query, candidates):
     if not candidates:
-        return []
+        return candidates
 
-    # Build prompt
+    # Build numbered documents
     numbered_docs = ""
     for i, candidate in enumerate(candidates):
-        numbered_docs += f"\nDocument {i}:\n{candidate['content']}\n"
+        numbered_docs += f"\nDocument {i}:\n{candidate.get('content', '')}\n"
 
     prompt = f"""
 You are a strict relevance scoring assistant.
 
 Query: "{query}"
 
-Rate each document from 0 to 10.
+Rate each document from 0 to 10 based on relevance to the query.
 
-Return ONLY valid JSON:
+Return ONLY valid JSON in this exact format:
 {{"scores": [score0, score1, score2, ...]}}
 
 Documents:
@@ -38,29 +37,28 @@ Documents:
             timeout=30
         )
 
-        content = response.json()["choices"][0]["message"]["content"]
+        response.raise_for_status()
+        result_text = response.json()["choices"][0]["message"]["content"]
 
-        # Extract JSON safely using regex
-        match = re.search(r'\{.*\}', content, re.DOTALL)
-        if match:
-            scores_json = json.loads(match.group())
+        # Extract JSON safely
+        try:
+            scores_json = json.loads(result_text)
             scores = scores_json.get("scores", [])
-        else:
+        except Exception:
             scores = []
 
-    except Exception as e:
-        print("Rerank error:", e)
+    except Exception:
         scores = []
 
-    # Assign scores safely
+    # Ensure every candidate gets a valid score
     for i, candidate in enumerate(candidates):
-        try:
-            if i < len(scores):
+        if i < len(scores):
+            try:
                 normalized = float(scores[i]) / 10.0
                 candidate["score"] = max(0.0, min(1.0, normalized))
-            else:
+            except Exception:
                 candidate["score"] = 0.0
-        except:
+        else:
             candidate["score"] = 0.0
 
-    return sorted(candidates, key=lambda x: x["score"], reverse=True)
+    return sorted(candidates, key=lambda x: x.get("score", 0.0), reverse=True)

@@ -75,6 +75,15 @@ def semantic_search(data):
         results = results[:rerankK]
 
     latency = int((time.time() - start_time) * 1000)
+    # Ensure every result has valid numeric score between 0 and 1
+    for r in results:
+        try:
+            score = float(r.get("score", 0.0))
+            if score != score:  # check NaN
+                score = 0.0
+            r["score"] = max(0.0, min(1.0, score))
+        except:
+            r["score"] = 0.0
 
     return {
         "results": results,
